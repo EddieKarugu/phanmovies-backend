@@ -34,5 +34,18 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+    'tmdb' => [
+        'key' => env('TMDB_API_KEY'),
+        'base_url' => env('TMDB_BASE_URL', 'https://api.themoviedb.org/3'),
+        'image_url' => env('TMDB_IMAGE_URL', 'https://image.tmdb.org/t/p'),
+    ],
+     'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+    ],
+
+    'apple' => [
+        'client_id' => env('APPLE_CLIENT_ID'),
+    ],
 
 ];
