@@ -26,7 +26,7 @@ class SocialAuthController extends Controller
             'code' => $request->server_auth_code,
             'client_id' => config('services.google.client_id'),
             'client_secret' => config('services.google.client_secret'),
-            'redirect_uri' => 'postmessage',
+            'redirect_uri' => '',
             'grant_type' => 'authorization_code',
         ]);
 
