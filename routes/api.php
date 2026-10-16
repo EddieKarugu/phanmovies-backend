@@ -45,4 +45,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/genres/movies', [MovieController::class, 'movieGenres']);
     Route::get('/genres/tv', [MovieController::class, 'tvGenres']);
     Route::get('/browse/all', [MovieController::class, 'browseAll']);
+
+    Route::get('/movies/{id}/details', [MovieController::class, 'movieDetails']);
+    Route::get('/tv/{id}/details', [MovieController::class, 'tvDetails']);
+    Route::get('/tv/{id}/season/{seasonNumber}', [MovieController::class, 'tvSeasonDetails']);
 });

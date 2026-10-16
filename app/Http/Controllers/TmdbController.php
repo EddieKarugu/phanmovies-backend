@@ -737,4 +737,228 @@ public function browseAll(Request $request)
 
     return response()->json($data);
 }
+
+
+public function movieDetails(int $id)
+{
+    $cacheKey = "tmdb.movie.{$id}.details";
+    $cached = Cache::get($cacheKey);
+    if ($cached !== null) {
+        return response()->json($cached);
+    }
+
+    $apiKey = config('services.tmdb.key');
+    $baseUrl = config('services.tmdb.base_url');
+
+    $responses = Http::connectTimeout(30)
+        ->timeout(60)
+        ->retry(2, 1000)
+        ->pool(fn (Pool $pool) => [
+            $pool->as('details')->get("{$baseUrl}/movie/{$id}", [
+                'api_key' => $apiKey,
+                'language' => 'en-US',
+                'append_to_response' => 'videos,credits,recommendations',
+            ]),
+        ]);
+
+    $details = null;
+    if (($responses['details'] ?? null) instanceof Response && $responses['details']->successful()) {
+        $details = $responses['details']->json();
+    }
+
+    if (! $details) {
+        return response()->json(['message' => 'Movie not found'], 404);
+    }
+
+    // Pick the best YouTube trailer
+    $videos = $details['videos']['results'] ?? [];
+    $trailerKey = null;
+    foreach ($videos as $v) {
+        if (($v['site'] ?? '') === 'YouTube' && ($v['type'] ?? '') === 'Trailer') {
+            $trailerKey = $v['key'];
+            break;
+        }
+    }
+    // Fall back to any YouTube video if no Trailer type found
+    if (! $trailerKey) {
+        foreach ($videos as $v) {
+            if (($v['site'] ?? '') === 'YouTube') {
+                $trailerKey = $v['key'];
+                break;
+            }
+        }
+    }
+
+    // Format top-billed cast (limit to 15)
+    $cast = collect($details['credits']['cast'] ?? [])
+        ->take(15)
+        ->map(fn ($c) => [
+            'id' => $c['id'] ?? 0,
+            'name' => $c['name'] ?? '',
+            'character' => $c['character'] ?? '',
+            'profile_url' => $this->buildImageUrl($c['profile_path'] ?? null, 'w185'),
+        ])
+        ->values()
+        ->toArray();
+
+    // Format recommendations
+    $recs = collect($details['recommendations']['results'] ?? [])
+        ->take(20)
+        ->map(fn ($m) => $this->formatMovie($m, 'movie'))
+        ->values()
+        ->toArray();
+
+    // Format the movie itself using your existing formatter
+    $movie = $this->formatMovie($details, 'movie');
+
+    $payload = [
+        'movie' => $movie,
+        'trailer_key' => $trailerKey,          
+        'cast' => $cast,
+        'recommendations' => $recs,
+        'seasons' => [], // Movies don't have seasons, so this is empty
+    ];
+
+    Cache::put($cacheKey, $payload, now()->addHours(6));
+
+    return response()->json($payload);
+}
+
+
+public function tvDetails(int $id)
+{
+    $cacheKey = "tmdb.tv.{$id}.details";
+    $cached = Cache::get($cacheKey);
+    if ($cached !== null) {
+        return response()->json($cached);
+    }
+
+    $apiKey = config('services.tmdb.key');
+    $baseUrl = config('services.tmdb.base_url');
+
+    $responses = Http::connectTimeout(30)
+        ->timeout(60)
+        ->retry(2, 1000)
+        ->pool(fn (Pool $pool) => [
+            $pool->as('details')->get("{$baseUrl}/tv/{$id}", [
+                'api_key' => $apiKey,
+                'language' => 'en-US',
+                'append_to_response' => 'videos,credits,recommendations',
+            ]),
+        ]);
+
+    $details = null;
+    if (($responses['details'] ?? null) instanceof Response && $responses['details']->successful()) {
+        $details = $responses['details']->json();
+    }
+
+    if (! $details) {
+        return response()->json(['message' => 'TV show not found'], 404);
+    }
+
+    $videos = $details['videos']['results'] ?? [];
+    $trailerKey = null;
+    foreach ($videos as $v) {
+        if (($v['site'] ?? '') === 'YouTube' && ($v['type'] ?? '') === 'Trailer') {
+            $trailerKey = $v['key'];
+            break;
+        }
+    }
+    if (! $trailerKey) {
+        foreach ($videos as $v) {
+            if (($v['site'] ?? '') === 'YouTube') {
+                $trailerKey = $v['key'];
+                break;
+            }
+        }
+    }
+
+    $cast = collect($details['credits']['cast'] ?? [])
+        ->take(15)
+        ->map(fn ($c) => [
+            'id' => $c['id'] ?? 0,
+            'name' => $c['name'] ?? '',
+            'character' => $c['character'] ?? '',
+            'profile_url' => $this->buildImageUrl($c['profile_path'] ?? null, 'w185'),
+        ])
+        ->values()
+        ->toArray();
+
+    $recs = collect($details['recommendations']['results'] ?? [])
+        ->take(20)
+        ->map(fn ($m) => $this->formatMovie($m, 'tv'))
+        ->values()
+        ->toArray();
+
+    $movie = $this->formatMovie($details, 'tv');
+
+ $seasons = collect($details['seasons'] ?? [])
+    ->filter(fn ($s) => ($s['season_number'] ?? 0) > 0) 
+    ->map(fn ($s) => [
+        'season_number' => $s['season_number'],
+        'name' => $s['name'] ?? 'Season ' . $s['season_number'],
+        'episode_count' => $s['episode_count'] ?? 0,
+        'poster_url' => $this->buildImageUrl($s['poster_path'] ?? null, 'w342'),
+        'air_date' => $s['air_date'] ?? null,
+    ])
+    ->values()
+    ->toArray();
+
+$payload = [
+    'movie' => $movie,
+    'trailer_key' => $trailerKey,
+    'cast' => $cast,
+    'recommendations' => $recs,
+    'seasons' => $seasons,   
+];
+
+    Cache::put($cacheKey, $payload, now()->addHours(6));
+
+    return response()->json($payload);
+}
+
+public function tvSeasonDetails(int $id, int $seasonNumber)
+{
+    $cacheKey = "tmdb.tv.{$id}.season.{$seasonNumber}.details";
+    $cached = Cache::get($cacheKey);
+    if ($cached !== null) {
+        return response()->json($cached);
+    }
+
+    $result = $this->tmdbGet("/tv/{$id}/season/{$seasonNumber}", [
+        'language' => 'en-US',
+    ]);
+
+    if ($result['error']) {
+        return $this->errorResponse($result);
+    }
+
+    $data = $result['data'];
+
+    $episodes = collect($data['episodes'] ?? [])
+        ->map(fn ($e) => [
+            'episode_number' => $e['episode_number'] ?? 0,
+            'name' => $e['name'] ?? '',
+            'overview' => $e['overview'] ?? '',
+            'still_url' => $this->buildImageUrl($e['still_path'] ?? null, 'w300'),
+            'runtime' => $e['runtime'] ?? null,
+            'air_date' => $e['air_date'] ?? null,
+            'vote_average' => $e['vote_average'] ?? 0,
+        ])
+        ->values()
+        ->toArray();
+
+    $payload = [
+        'season_number' => $data['season_number'] ?? $seasonNumber,
+        'name' => $data['name'] ?? '',
+        'overview' => $data['overview'] ?? '',
+        'poster_url' => $this->buildImageUrl($data['poster_path'] ?? null, 'w342'),
+        'episodes' => $episodes,
+    ];
+
+    Cache::put($cacheKey, $payload, now()->addHours(6));
+
+    return response()->json($payload);
+}
+
 }
